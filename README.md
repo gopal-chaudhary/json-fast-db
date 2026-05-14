@@ -1,4 +1,4 @@
-# json-fast-db
+# quick-local-db
 
 A tiny, zero-dependency JSON-backed embedded DB for small Node projects — safe atomic writes and simple Table/Collection primitives. Ideal for prototyping, local tools, CLIs and small single-process apps.
 
@@ -19,14 +19,14 @@ A tiny, zero-dependency JSON-backed embedded DB for small Node projects — safe
 ## Install
 
 ```
-npm install json-fast-db
+npm install quick-local-db
 ```
 
 ## Usage (ESM)
 
 ```js
-import JsonDB from 'json-fast-db'
-import Table from 'json-fast-db/dist/model/table.js'
+import JsonDB from 'quick-local-db'
+import Table from 'quick-local-db/dist/model/table.js'
 
 class User extends Table {}
 
