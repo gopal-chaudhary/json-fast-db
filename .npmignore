@@ -1,0 +1,11 @@
+src/
+playground/
+tests/
+*.ts
+*.map
+node_modules/
+dist/**/*.map
+temp*
+*.log
+coverage/
+*** End Patch
