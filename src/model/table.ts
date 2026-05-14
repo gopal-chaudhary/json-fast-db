@@ -45,6 +45,15 @@ export default class Table {
         return rows.filter(predicate)
     }
 
+    async findOne(predicate: (r: JSONObject)=>boolean): Promise<JSONObject | null>{
+        const rows = await this.readAll()
+        return rows.find(predicate) ?? null
+    }
+
+    async findById(id: string): Promise<JSONObject | null>{
+        return this.findOne(r=>r.id === id)
+    }
+
     async update(id: string, patch: Partial<JSONObject>): Promise<JSONObject | null>{
         const rows = await this.readAll()
         const idx = rows.findIndex(r=>r.id === id)

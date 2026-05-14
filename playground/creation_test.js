@@ -25,8 +25,9 @@ const users = db.registerTable(User);
 	const found = await users.findBy(r=>r.name === 'Alice')
 	console.log('Found:', found)
 
-	await users.update(alice.id, { email: 'alice@new.com' })
-	console.log('After update:', await users.findBy(r=>r.id === alice.id))
+	const updated = await users.update(alice.id, { email: 'alice@new.com' })
+	console.log('After update (returned):', updated)
+	console.log('After update (findById):', await users.findById(alice.id))
 
 	const removed = await users.deleteById(alice.id)
 	console.log('Deleted:', removed)
