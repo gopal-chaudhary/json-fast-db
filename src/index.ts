@@ -1,17 +1,29 @@
 import File from "./fileManager/manage_file_ceation.js";
 import type { DB_NAME,DB_PATH } from "./interfaces/collections_interface";
+import Collection from "./collection.js"
 
 class JsonDB{
-    collections: Map<DB_NAME,DB_PATH > = new Map<DB_NAME, DB_PATH>();
+    collection: Collection
 
-    constructor(db_name: DB_NAME, db_path: DB_PATH){
-        File.create(db_path)
-        .then(data =>{
-                this.collections.set(db_name, data.path );
-        })
-        .catch((err:any)=>{
-            throw Error(err.message);
-        })        
+    constructor(collectionName: DB_NAME, dirPath: DB_PATH){
+        this.collection = new Collection(collectionName, dirPath)
+    }
+
+    // Register a Table model (class should extend the base Table)
+    registerTable<T extends import("./model/table.js").default>(ModelClass: new(tableName: string, filePath: string)=>T): T{
+        return this.collection.registerTable(ModelClass)
+    }
+
+    getCollection(): Collection{
+        return this.collection
+    }
+
+    async drop(): Promise<{ dropped: boolean; path: string }>{
+        return this.collection.drop()
+    }
+
+    async deleteTable(tableName: string){
+        return this.collection.deleteTable(tableName)
     }
 }
 
