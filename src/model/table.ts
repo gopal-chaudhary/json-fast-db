@@ -1,5 +1,6 @@
 import fs from "fs"
 import path from "path"
+import { atomicWrite } from "../fileManager/atomic_writer.js"
 
 export type JSONObject = { [k: string]: any }
 
@@ -12,7 +13,9 @@ export default class Table {
         this.filePath = filePath
         // ensure file exists
         fs.promises.mkdir(path.dirname(this.filePath), { recursive: true }).catch(()=>{})
-        fs.promises.stat(this.filePath).then(()=>{}).catch(()=>fs.promises.writeFile(this.filePath, JSON.stringify([])))
+        fs.promises.stat(this.filePath)
+            .then(()=>{})
+            .catch(()=> atomicWrite(this.filePath, JSON.stringify([])).catch(()=>{}))
     }
 
     protected async readAll(): Promise<JSONObject[]>{
@@ -24,7 +27,8 @@ export default class Table {
     }
 
     protected async writeAll(rows: JSONObject[]): Promise<void>{
-        await fs.promises.writeFile(this.filePath, JSON.stringify(rows, null, 2))
+        const data = JSON.stringify(rows, null, 2)
+        await atomicWrite(this.filePath, data)
     }
 
     async insert(obj: JSONObject): Promise<JSONObject>{
