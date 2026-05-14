@@ -48,14 +48,30 @@ console.log(await users.findAll())
 
 Writes are performed via a safe sequence: write to a temporary file and `rename()` to replace the original. Writes are also queued per file in-process so concurrent writes from the same Node process do not interleave.
 
-## Publishing (prepare + build)
+## Playground code
 
-Before publishing, build the project to populate `dist`:
+```javascript
+import JsonDB from "quick-local-db"
+import Table from "quick-local-db/dist/model/table.js"
 
-```bash
-npm run build
-# or npm publish will invoke `prepare` which runs the build
-npm publish --access public
+class User extends Table {}
+
+const db = new JsonDB("users", "./playground/users")
+const users = db.registerTable(User);
+
+(async ()=>{
+  const all = await users.findAll()
+  let target = all[0]
+  if(!target){
+    target = await users.insert({ name: "Alice", email: "alice@example.com" })
+    console.log("Inserted:", target)
+  } else {
+    console.log("Using existing:", target)
+  }
+
+  const removed = await users.deleteById(target.id)
+  console.log("Deleted:", removed)
+})()
 ```
 
 ## Notes for maintainers
