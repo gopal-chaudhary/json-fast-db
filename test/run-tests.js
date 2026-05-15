@@ -44,6 +44,8 @@ async function runCrudFlow(){
   // cleanup produced file via collection.deleteTable
   const res = await db.getCollection().deleteTable('User')
   assert(typeof res.deleted === 'boolean')
+  if (users && users.engine && typeof users.engine.close === 'function')
+    await users.engine.close().catch(()=>{})
 }
 
 async function runConcurrentInserts(){
@@ -56,6 +58,8 @@ async function runConcurrentInserts(){
   await Promise.all(Array.from({ length: inserts }).map((_,i)=>Users.insert({ i })))
   const rows = await Users.findAll()
   assert(rows.length === inserts)
+  if (Users && Users.engine && typeof Users.engine.close === 'function')
+    await Users.engine.close().catch(()=>{})
 }
 
 async function runCollectionDrop(){
@@ -88,8 +92,9 @@ async function main(){
     const removed = await table.deleteById(a.id)
     assert(removed === true)
     await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+    if (table && table.engine && typeof table.engine.close === 'function')
+      await table.engine.close().catch(()=>{})
   }
-
   async function runWalConcurrent(){
     const outDir = path.join(TMP_DIR, 'wal_concurrent')
     await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
@@ -99,10 +104,18 @@ async function main(){
     const rows = await table.findAll()
     assert(rows.length === inserts)
     await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+    if (table && table.engine && typeof table.engine.close === 'function')
+      await table.engine.close().catch(()=>{})
   }
-
   await runWalCrud()
   await runWalConcurrent()
+  // ensure any background WAL timers are stopped to allow process exit
+  try {
+    // if any WalTable instances left timers, attempt to close their engines
+    // (close is idempotent and safe if engine was initialized)
+    // No global references here; individual tables in tests call .engine.close()
+  }
+  catch (e) { /* ignore */ }
   await cleanup()
   console.log('All tests passed')
 }
