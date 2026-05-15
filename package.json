@@ -1,6 +1,6 @@
 {
   "name": "quick-local-db",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "A tiny, zero-dependency JSON-backed local DB (TypeScript/ESM)",
   "main": "dist/index.js",
   "scripts": {
