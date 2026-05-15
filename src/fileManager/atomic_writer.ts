@@ -2,6 +2,7 @@ import fs from "fs"
 import path from "path"
 
 const writeQueues: Map<string, Promise<void>> = new Map()
+const opQueues: Map<string, Promise<any>> = new Map()
 
 async function _doAtomicWrite(filePath: string, data: string): Promise<void>{
     const dir = path.dirname(filePath)
@@ -25,4 +26,13 @@ export function atomicWrite(filePath: string, data: string): Promise<void>{
 export async function drainWrites(filePath: string): Promise<void>{
     const p = writeQueues.get(filePath)
     if(p) await p
+}
+
+export function queueOperation<T>(filePath: string, op: ()=>Promise<T>): Promise<T>{
+    const prev = opQueues.get(filePath) ?? Promise.resolve()
+    const next = prev.then(()=> op())
+    const guarded = next.catch(err=>{ throw err })
+    // keep queue alive but swallow errors for queue continuity
+    opQueues.set(filePath, guarded.then(()=>{}).catch(()=>{}))
+    return guarded
 }
