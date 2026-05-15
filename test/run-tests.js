@@ -70,6 +70,39 @@ async function main(){
   await runCrudFlow()
   await runConcurrentInserts()
   await runCollectionDrop()
+  // WAL backend checks
+  const WalTable = (await import('../dist/engine/wal_table.js')).default
+
+  async function runWalCrud(){
+    const outDir = path.join(TMP_DIR, 'wal_users')
+    await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+    const table = new WalTable('User', path.join(outDir, 'User.json'))
+    const a = await table.insert({ name: 'Bob' })
+    assert(a && a.id)
+    const byId = await table.findById(a.id)
+    assert(byId && byId.name === 'Bob')
+    const updated = await table.update(a.id, { x: 1 })
+    assert(updated && updated.x === 1)
+    const all = await table.findAll()
+    assert(Array.isArray(all) && all.length === 1)
+    const removed = await table.deleteById(a.id)
+    assert(removed === true)
+    await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+  }
+
+  async function runWalConcurrent(){
+    const outDir = path.join(TMP_DIR, 'wal_concurrent')
+    await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+    const table = new WalTable('Concurrent', path.join(outDir, 'Concurrent.json'))
+    const inserts = 100
+    await Promise.all(Array.from({ length: inserts }).map((_,i)=>table.insert({ i })))
+    const rows = await table.findAll()
+    assert(rows.length === inserts)
+    await fs.rm(outDir, { recursive: true, force: true }).catch(()=>{})
+  }
+
+  await runWalCrud()
+  await runWalConcurrent()
   await cleanup()
   console.log('All tests passed')
 }

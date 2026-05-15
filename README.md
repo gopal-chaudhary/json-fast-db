@@ -126,6 +126,25 @@ npm run build
 bash playground/examples/run-all-examples.sh
 ```
 
+**Architecture & Internals**
+
+This project now ships two storage backends and the README below describes their trade-offs:
+
+- **JSON-file backend (original):** each table is stored as a single JSON file and mutations rewrite the whole file. Simple and easy to inspect, but writes and point-reads cost O(N) (not suitable for large tables).
+- **WAL backend (new):** each table uses an append-only WAL file plus a small on-disk index mapping `id -> offset`. Inserts and updates append small records (O(1)), and lookups by id are direct seeks (O(1)). The WAL implementation files are in `src/engine/` and the WAL backend is `WalTable`.
+
+Key notes:
+- WAL file format: length-prefixed JSON records. Each record is either `put` (with `doc`) or `del` (with `id`). The index (file `.wal.idx`) stores `id` → offset into the WAL for fast reads.
+- Durability: writes are appended and flushed; the index is kept on disk but rebuilt from WAL if missing or corrupted.
+- Compaction: WAL grows over time; compaction/snapshotting is required to reclaim space and restore efficient full-table scans. Compaction is not yet implemented — see `docs/workflow.md` for the suggested compaction approach.
+- Concurrency: single-process concurrent writes are handled (per-file operation queue + atomic write). Cross-process writer locking is not yet implemented — add `flock`/lockfile for multi-process safety before using in concurrent server processes.
+
+Where to read more
+- Implementation and internal workflow for WAL: `docs/workflow.md` (new). It explains record format, index rebuild, append/read semantics, and compaction suggestions.
+- Tests and examples: `test/run-tests.js` validates both backends and `playground/examples/` contains runnable samples.
+
+If you want me to implement compaction, inter-process locking, or a migration tool from JSON → WAL, tell me which to prioritize and I'll add it next.
+
 ## Contributing
 
 Issues and PRs welcome. For major changes (WAL, concurrency, indexing) let's discuss design before implementation.
