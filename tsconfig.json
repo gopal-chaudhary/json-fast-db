@@ -5,6 +5,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"],
+    "declaration": true,
+    "declarationMap": false,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": false,
