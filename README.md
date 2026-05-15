@@ -39,10 +39,26 @@ console.log(await users.findAll())
 ```
 
 ## API Overview
+- `new JsonDB(collectionName, dirPath)` — creates a collection directory and returns a `JsonDB` instance.
 
-- `new JsonDB(collectionName, dirPath)` — creates a collection directory and returns a JSON-DB instance.
-- `db.registerTable(ModelClass)` — register a table model (class extending `Table`). Returns an instance of the model.
-- `Table` methods: `insert(obj)`, `findAll()`, `findBy(predicate)`, `findOne(predicate)`, `findById(id)`, `update(id, patch)`, `deleteById(id)`.
+- `db.registerTable(ModelClass)` — register a table model (class extending `Table`). Returns an instance of the model bound to a file named `<ModelClassName>.json` inside the collection directory.
+
+API: `Table` (methods)
+- `insert(obj: JSONObject): Promise<JSONObject>` — inserts `obj` and returns the inserted record (an `id` is generated if not provided).
+- `findAll(): Promise<JSONObject[]>` — returns all records (array).
+- `findBy(predicate): Promise<JSONObject[]>` — returns all records matching `predicate`.
+- `findOne(predicate): Promise<JSONObject | null>` — returns the first matching record or `null`.
+- `findById(id: string): Promise<JSONObject | null>` — convenience wrapper to find a record by `id`.
+- `update(id: string, patch: Partial<JSONObject>): Promise<JSONObject | null>` — applies `patch` to the record with `id` and returns the updated record (or `null` if not found).
+- `deleteById(id: string): Promise<boolean>` — deletes a record by `id`; returns `true` if removed.
+
+API: `Collection` (methods)
+- `registerTable(ModelClass)` — returns a new instance of the supplied `ModelClass` (which should extend `Table`).
+- `deleteTable(tableName: string): Promise<{ deleted: boolean; path: string}>` — removes the underlying JSON file for the named table.
+- `drop(): Promise<{ dropped: boolean; path: string }>` — recursively deletes the collection directory and returns whether it was removed.
+
+TypeScript types
+- The package emits declaration files (`dist/index.d.ts`) so TypeScript consumers get types. The `JSONObject` type used by `Table` is `{ [k: string]: any }`.
 
 ## Why atomic writes?
 
@@ -78,6 +94,24 @@ const users = db.registerTable(User);
 
 - `files` in `package.json` includes `dist`, `README.md`, and `LICENSE`. Source (`src`) is not shipped.
 - See `playground/creation_test.js` for a runnable example.
+
+## Examples and Tests
+
+This project includes a small test-suite under `test/` which demonstrates the common user flows and acts as executable documentation. Run:
+
+```bash
+npm run build
+npm test
+```
+
+What the tests cover:
+- creating a `JsonDB` and `Collection`
+- registering a `Table` model
+- full CRUD cycle (`insert`, `findAll`, `findBy`, `findOne`, `findById`, `update`, `deleteById`)
+- removing a table file via `deleteTable` and deleting the collection via `drop`
+- concurrent inserts to exercise the atomic-writer queue and ensure no write corruption
+
+If you want more examples, see `playground/creation_test.js` which demonstrates typical usage and can be run directly after `npm run build`.
 
 ## Contributing
 

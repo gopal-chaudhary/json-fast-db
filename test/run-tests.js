@@ -1,15 +1,80 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import JsonDB from '../dist/index.js';
 
-async function main(){
-  assert(JsonDB, 'expected default export to exist');
-  // Basic smoke: creating an instance should not throw
-  const db = new JsonDB('test_collection', './test/tmp');
-  assert(typeof db.getCollection === 'function', 'db.getCollection should be a function');
-  console.log('smoke-test: OK');
+const TMP_DIR = path.join(process.cwd(), 'test', 'tmp_data')
+
+async function cleanup(){
+  await fs.rm(TMP_DIR, { recursive: true, force: true }).catch(()=>{})
 }
 
-main().catch((err)=>{
-  console.error(err);
-  process.exit(1);
-});
+class User extends (await import('../dist/model/table.js')).default {}
+
+async function runCrudFlow(){
+  const db = new JsonDB('users', TMP_DIR)
+  const users = db.registerTable(User)
+
+  // insert
+  const a = await users.insert({ name: 'Alice' })
+  assert(a && a.id && a.name === 'Alice')
+
+  // findAll
+  const all = await users.findAll()
+  assert(Array.isArray(all) && all.length === 1)
+
+  // findBy
+  const found = await users.findBy(r=>r.name === 'Alice')
+  assert(found.length === 1)
+
+  // findOne / findById
+  const one = await users.findOne(r=>r.id === a.id)
+  assert(one && one.id === a.id)
+  const byId = await users.findById(a.id)
+  assert(byId && byId.id === a.id)
+
+  // update
+  const updated = await users.update(a.id, { email: 'alice@example.com' })
+  assert(updated && updated.email === 'alice@example.com')
+
+  // delete
+  const removed = await users.deleteById(a.id)
+  assert(removed === true)
+
+  // cleanup produced file via collection.deleteTable
+  const res = await db.getCollection().deleteTable('User')
+  assert(typeof res.deleted === 'boolean')
+}
+
+async function runConcurrentInserts(){
+  const db = new JsonDB('concurrent', TMP_DIR)
+  const TableClass = (await import('../dist/model/table.js')).default
+  const Users = db.registerTable(class ConcurrentUser extends TableClass {})
+
+  // do many concurrent inserts to exercise the atomic write queue
+  const inserts = 50
+  await Promise.all(Array.from({ length: inserts }).map((_,i)=>Users.insert({ i })))
+  const rows = await Users.findAll()
+  assert(rows.length === inserts)
+}
+
+async function runCollectionDrop(){
+  const db = new JsonDB('toDrop', TMP_DIR)
+  const res = await db.getCollection().drop()
+  // drop returns an object with dropped boolean
+  assert(typeof res.dropped === 'boolean')
+}
+
+async function main(){
+  await cleanup()
+  await runCrudFlow()
+  await runConcurrentInserts()
+  await runCollectionDrop()
+  await cleanup()
+  console.log('All tests passed')
+}
+
+main().catch(err=>{
+  console.error('Test failed:', err)
+  process.exit(1)
+})
