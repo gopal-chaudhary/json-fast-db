@@ -1,10 +1,11 @@
 # quick-local-db
 
-A tiny, zero-dependency JSON-backed embedded DB for small Node projects — safe atomic writes and simple Table/Collection primitives. Ideal for prototyping, local tools, CLIs and small single-process apps.
+A tiny, zero-dependency embedded DB for small Node projects — safe atomic writes and simple Table/Collection primitives. Ideal for prototyping, local tools, CLIs and single-process apps.
 
 ## Features
 
-- File-per-table storage (JSON array of records)
+- File-per-table storage (JSON array of records) — legacy backend
+- WAL-backed storage (default): append-only WAL + on-disk `id -> offset` index for fast point-reads
 - Simple `Table` base class with CRUD: `insert`, `findAll`, `findBy`, `findOne`, `findById`, `update`, `deleteById`
 - `Collection` to group tables (directory per collection)
 - `JsonDB` convenience wrapper for a single collection
@@ -12,9 +13,9 @@ A tiny, zero-dependency JSON-backed embedded DB for small Node projects — safe
 
 ## Limitations
 
-- Not for multi-process concurrent writes (single-process safety only)
-- No indexes or advanced queries — scans full JSON arrays
-- Rewrites full file on mutation (suitable for small datasets)
+- Default setup is single-process safe only: writers from multiple Node processes are not coordinated. Add OS-level locking (flock/lockfile) before using in multi-process environments.
+- No secondary indexes or advanced query engine: there is an `id` → offset index for O(1) point-reads, but `findBy`/`findAll` still scan live records.
+- WAL grows until compaction/snapshotting is added: compaction is required to reclaim space and restore efficient sequential full-table scans.
 
 ## Install
 
