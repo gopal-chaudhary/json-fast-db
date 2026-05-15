@@ -58,7 +58,8 @@ export default class Table {
     }
 
     async insert(obj: JSONObject): Promise<JSONObject>{
-        return queueOperation(this.filePath, async ()=>{
+        const queueKey = this.engine ? this.engine.walPath : this.filePath
+        return queueOperation(queueKey, async ()=>{
             const id = obj.id ?? `${Date.now()}-${Math.floor(Math.random()*10000)}`
             const record = { ...obj, id }
             if(this.engine){
@@ -91,7 +92,8 @@ export default class Table {
     }
 
     async update(id: string, patch: Partial<JSONObject>): Promise<JSONObject | null>{
-        return queueOperation(this.filePath, async ()=>{
+        const queueKey = this.engine ? this.engine.walPath : this.filePath
+        return queueOperation(queueKey, async ()=>{
             if(this.engine){
                 const cur = await this.engine.getById(id)
                 if(!cur) return null
@@ -109,7 +111,8 @@ export default class Table {
     }
 
     async deleteById(id: string): Promise<boolean>{
-        return queueOperation(this.filePath, async ()=>{
+        const queueKey = this.engine ? this.engine.walPath : this.filePath
+        return queueOperation(queueKey, async ()=>{
             if(this.engine){
                 const cur = await this.engine.getById(id)
                 if(!cur) return false

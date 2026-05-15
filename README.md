@@ -13,17 +13,21 @@ A tiny, zero-dependency embedded DB for small Node projects — safe atomic writ
 
 ## Limitations
 
-- Default setup is single-process safe only: writers from multiple Node processes are not coordinated. Add OS-level locking (flock/lockfile) before using in multi-process environments.
-- No secondary indexes or advanced query engine: there is an `id` → offset index for O(1) point-reads, but `findBy`/`findAll` still scan live records.
-- WAL grows until compaction/snapshotting is added: compaction is required to reclaim space and restore efficient sequential full-table scans.
+- Default setup is single-process safe by default: concurrent operations inside one Node process are supported. A simple lockfile is used during compaction rotation, but full multi-process writer coordination (e.g. using `flock` or OS-level advisory locks for every writer) is not provided — enable OS-level locking for production multi-process use.
+- No secondary indexes or advanced query engine: there is an `id` → offset index for O(1) point-reads, but `findBy`/`findAll` still scan live records and are O(N).
+- Automatic background compaction is implemented (configurable). Compaction reclaims space and keeps full-table scans efficient; however, tune compaction thresholds for long-running deployments and monitor disk usage.
 
-## Install
+# quick-local-db
 
-```
+A minimal embedded database for Node.js focused on local, single-process use cases. It provides a simple `Table`/`Collection` API and ships with a WAL-backed storage engine by default for fast point-reads and cheap appends.
+
+Install
+
+```bash
 npm install quick-local-db
 ```
 
-## Usage (ESM)
+Quick start (ESM)
 
 ```js
 import JsonDB from 'quick-local-db'
@@ -31,32 +35,49 @@ import Table from 'quick-local-db/dist/model/table.js'
 
 class User extends Table {}
 
-// create DB-backed collection directory
 const db = new JsonDB('users', './data/users')
 const users = db.registerTable(User)
 
-await users.insert({ name: 'Alice', email: 'alice@example.com' })
+await users.insert({ name: 'Alice' })
 console.log(await users.findAll())
 ```
 
-## API Overview
-- `new JsonDB(collectionName, dirPath)` — creates a collection directory and returns a `JsonDB` instance.
+What this package provides
 
-- `db.registerTable(ModelClass)` — register a table model (class extending `Table`). Returns an instance of the model bound to a file named `<ModelClassName>.json` inside the collection directory.
+- A `Table` base class with familiar CRUD: `insert`, `findAll`, `findBy`, `findOne`, `findById`, `update`, `deleteById`.
+- `Collection` to group tables (one directory per collection).
+- Default WAL backend: append-only log + on-disk `id -> offset` index for O(1) point-reads and O(1) appends.
+- Automatic background compaction (configurable defaults) and a simple lockfile-based inter-process lock used during compaction to reduce cross-process races.
 
-API: `Table` (methods)
-- `insert(obj: JSONObject): Promise<JSONObject>` — inserts `obj` and returns the inserted record (an `id` is generated if not provided).
-- `findAll(): Promise<JSONObject[]>` — returns all records (array).
-- `findBy(predicate): Promise<JSONObject[]>` — returns all records matching `predicate`.
-- `findOne(predicate): Promise<JSONObject | null>` — returns the first matching record or `null`.
-- `findById(id: string): Promise<JSONObject | null>` — convenience wrapper to find a record by `id`.
-- `update(id: string, patch: Partial<JSONObject>): Promise<JSONObject | null>` — applies `patch` to the record with `id` and returns the updated record (or `null` if not found).
-- `deleteById(id: string): Promise<boolean>` — deletes a record by `id`; returns `true` if removed.
+Important limitations (read before using in production)
 
-API: `Collection` (methods)
-- `registerTable(ModelClass)` — returns a new instance of the supplied `ModelClass` (which should extend `Table`).
-- `deleteTable(tableName: string): Promise<{ deleted: boolean; path: string}>` — removes the underlying JSON file for the named table.
-- `drop(): Promise<{ dropped: boolean; path: string }>` — recursively deletes the collection directory and returns whether it was removed.
+- Single-process safe by default: concurrent operations inside one Node process are supported. A simple lockfile is used for compaction rotation, but if you run multiple Node processes that perform writes concurrently you should enable OS-level locking (e.g. `flock`) or other coordination and test thoroughly.
+- No secondary indexes or query planner — point-reads by `id` are fast; `findBy`/`findAll` scan records and have O(N) cost.
+- Automatic background compaction is enabled by default (configurable). Monitor disk usage and tune compaction thresholds for long-running deployments.
+
+Documentation and examples
+
+- Developer docs and architecture details: `docs/workflow.md` (WAL format, compaction, recovery, migration).  
+- Runnable examples: `playground/examples/` (CRUD, collection ops, concurrency).  
+- Tests: `test/run-tests.js` demonstrates common flows and validates both backends.
+
+Run tests and examples locally
+
+```bash
+npm run build
+npm test
+bash playground/examples/run-all-examples.sh
+```
+
+Migrating from the legacy JSON backend
+
+If you previously stored tables as single JSON files, you can migrate by reading the JSON array and writing `put` entries into the WAL (see `docs/workflow.md` for a migration outline).
+
+If you need help with configuration (compaction thresholds, logging, or locking), or want a migration script added to the repo, open an issue or ask here and I can add it.
+
+License
+
+ISC (see LICENSE file)
 
 TypeScript types
 - The package emits declaration files (`dist/index.d.ts`) so TypeScript consumers get types. The `JSONObject` type used by `Table` is `{ [k: string]: any }`.
@@ -137,7 +158,7 @@ This project now ships two storage backends and the README below describes their
 Key notes:
 - WAL file format: length-prefixed JSON records. Each record is either `put` (with `doc`) or `del` (with `id`). The index (file `.wal.idx`) stores `id` → offset into the WAL for fast reads.
 - Durability: writes are appended and flushed; the index is kept on disk but rebuilt from WAL if missing or corrupted.
-- Compaction: WAL grows over time; compaction/snapshotting is required to reclaim space and restore efficient full-table scans. Compaction is not yet implemented — see `docs/workflow.md` for the suggested compaction approach.
+- Compaction: WAL grows over time; this project includes automatic background compaction (with configurable interval and size thresholds) which snapshots the live state and rotates the WAL. The compaction process uses a simple lockfile during rotation to reduce cross-process races; for stronger multi-process guarantees consider adding OS-level advisory locks.
 - Concurrency: single-process concurrent writes are handled (per-file operation queue + atomic write). Cross-process writer locking is not yet implemented — add `flock`/lockfile for multi-process safety before using in concurrent server processes.
 
 Where to read more

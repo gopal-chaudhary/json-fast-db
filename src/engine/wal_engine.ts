@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
-import { atomicWrite } from '../fileManager/atomic_writer.js'
+import { atomicWrite, queueOperation } from '../fileManager/atomic_writer.js'
+
+type Logger = (level: 'debug'|'info'|'warn'|'error', msg: string, meta?: any) => void
 
 type IndexMap = Record<string, number>
 
@@ -8,11 +10,28 @@ export default class WalEngine {
   walPath: string
   idxPath: string
   index: IndexMap = {}
+  // compaction/config
+  private compactionIntervalMs: number
+  private compactionThreshold: number
+  private compactionTimer?: NodeJS.Timeout
+  private compacting: boolean = false
+  private logger: Logger
+  private lockfilePath: string
+  public stats: {
+    compactionCount: number
+    lastCompactionDurationMs: number | null
+    lastCompactionSavedBytes: number | null
+  } = { compactionCount: 0, lastCompactionDurationMs: null, lastCompactionSavedBytes: null }
+  
 
-  constructor(walPath: string){
+  constructor(walPath: string, options?: { compactionIntervalMs?: number, compactionThreshold?: number, logger?: Logger, lockfilePath?: string }){
     this.walPath = walPath
     this.idxPath = `${walPath}.idx`
     fs.mkdirSync(path.dirname(this.walPath), { recursive: true })
+    this.compactionIntervalMs = options?.compactionIntervalMs ?? 30_000
+    this.compactionThreshold = options?.compactionThreshold ?? (1 << 20)
+    this.logger = options?.logger ?? ((lvl,msg)=>{ /* default no-op to avoid noisy logs */ })
+    this.lockfilePath = options?.lockfilePath ?? `${this.walPath}.lock`
   }
 
   async init(){
@@ -30,6 +49,125 @@ export default class WalEngine {
       }catch{}
     }
     await this.rebuildIndex()
+    // start background compaction checker
+    this.compactionTimer = setInterval(()=>{
+      this.checkAndCompact().catch(()=>{})
+    }, this.compactionIntervalMs)
+  }
+
+  async checkAndCompact(){
+    try{
+      if(this.compacting) return
+      const st = await fs.promises.stat(this.walPath).then(s=>s).catch(()=>null)
+      if(!st) return
+      if(st.size >= this.compactionThreshold) await this.compact()
+    }catch(err){
+      this.logger('warn', 'checkAndCompact error', { err })
+    }
+  }
+
+  // inter-process lock using exclusive create of a lockfile
+  private async acquireLock(retries = 50, delayMs = 100): Promise<() => Promise<void>>{
+    const lockfile = this.lockfilePath
+    for(let attempt=0; attempt<retries; attempt++){
+      try{
+        const fh = await fs.promises.open(lockfile, 'wx')
+        try{
+          await fh.write(`${process.pid}\n${Date.now()}\n`)
+        }finally{
+          await fh.close()
+        }
+        // acquired
+        return async ()=>{ await fs.promises.unlink(lockfile).catch(()=>{}) }
+      }catch(err:any){
+        // already exists — check if stale
+        try{
+          const raw = await fs.promises.readFile(lockfile, 'utf8')
+          const pid = parseInt(raw.split('\n')[0], 10)
+          if(Number.isFinite(pid)){
+            try{ process.kill(pid, 0); /* alive */ }
+            catch(e){
+              // process not alive — remove stale lock and retry immediate
+              await fs.promises.unlink(lockfile).catch(()=>{})
+              continue
+            }
+          }
+        }catch(e){ /* ignore */ }
+        await new Promise(r=>setTimeout(r, delayMs))
+        continue
+      }
+    }
+    throw new Error('Failed to acquire WAL lock')
+  }
+
+  async compact(): Promise<void>{
+    // ensure compaction executes serialized with writes
+    return queueOperation(this.walPath, async ()=>{
+      if(this.compacting) return
+      this.compacting = true
+      const start = Date.now()
+      const tmpNew = `${this.walPath}.new`
+      const backup = `${this.walPath}.bak`
+      try{
+        // acquire inter-process lock for rotation
+        const release = await this.acquireLock().catch(()=>null)
+        try{
+          // write new WAL file sequentially
+          const fh = await fs.promises.open(tmpNew, 'w')
+          try{
+            let pos = 0
+            const ids = Object.keys(this.index)
+            for(const id of ids){
+              const rec = await this.getById(id)
+              if(!rec) continue
+              const json = JSON.stringify({ op: 'put', doc: rec })
+              const bjson = Buffer.from(json, 'utf8')
+              const header = Buffer.from(`${bjson.length}\n`, 'utf8')
+              const tail = Buffer.from('\n')
+              const buf = Buffer.concat([header, bjson, tail])
+              await fh.write(buf, 0, buf.length, pos)
+              pos += buf.length
+            }
+            await fh.sync()
+          }finally{
+            await fh.close()
+          }
+
+          // rotate files: move current wal to backup, replace with new
+          await fs.promises.rename(this.walPath, backup).catch(()=>{})
+          await fs.promises.rename(tmpNew, this.walPath)
+
+          // rebuild index offsets from new WAL
+          const beforeSize = (await fs.promises.stat(backup).then(s=>s.size).catch(()=>0))
+          await this.rebuildIndex()
+          const afterSize = (await fs.promises.stat(this.walPath).then(s=>s.size).catch(()=>0))
+
+          // remove backup
+          await fs.promises.unlink(backup).catch(()=>{})
+          this.stats.compactionCount += 1
+          this.stats.lastCompactionDurationMs = Date.now() - start
+          this.stats.lastCompactionSavedBytes = beforeSize - afterSize
+          this.logger('info', 'compaction completed', { beforeSize, afterSize, durationMs: this.stats.lastCompactionDurationMs })
+        }finally{
+          if(release) await release().catch(()=>{})
+        }
+      }catch(err){
+        this.logger('error', 'compaction failed', { err })
+        // on error, try to clean tmp
+        await fs.promises.unlink(tmpNew).catch(()=>{})
+      }finally{
+        this.compacting = false
+      }
+    })
+  }
+
+  // gracefully stop background compaction timer and wait for any running compaction
+  async close(): Promise<void>{
+    if(this.compactionTimer) clearInterval(this.compactionTimer)
+    // wait for compaction to finish
+    while(this.compacting){
+      await new Promise(r=>setTimeout(r, 100))
+    }
   }
 
   // record format: <len>\n<json>\n  where json = { op: 'put'|'del', doc: JSONObject }
