@@ -113,6 +113,19 @@ What the tests cover:
 
 If you want more examples, see `playground/creation_test.js` which demonstrates typical usage and can be run directly after `npm run build`.
 
+Playground examples: `playground/examples/` includes:
+- `table_crud_example.js` — full CRUD demo for a `User` table.
+- `collection_example.js` — demonstrates `deleteTable` and `drop` on a collection.
+- `concurrency_example.js` — performs many concurrent inserts to exercise atomic writes.
+- `run-all-examples.sh` — helper script to build and run all examples.
+
+Run examples:
+
+```bash
+npm run build
+bash playground/examples/run-all-examples.sh
+```
+
 ## Contributing
 
 Issues and PRs welcome. For major changes (WAL, concurrency, indexing) let's discuss design before implementation.

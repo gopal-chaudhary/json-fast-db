@@ -1,4 +1,4 @@
-import File from "./fileManager/manage_file_ceation.js";
+import File from "./fileManager/manage_file_creation.js";
 import type { DB_NAME,DB_PATH } from "./interfaces/collections_interface";
 import Collection from "./collection.js"
 

@@ -19,7 +19,12 @@ export function atomicWrite(filePath: string, data: string): Promise<void>{
     // swallow errors in queue to avoid blocking subsequent writes, but rethrow to caller
     // keep chain consistent by catching here and rethrowing after
     const guarded = next.catch(err=>{ throw err })
-    writeQueues.set(filePath, guarded.then(()=>{}).catch(()=>{}))
+    const holder = guarded.then(()=>{}).catch(()=>{})
+    writeQueues.set(filePath, holder)
+    holder.finally(()=>{
+        const current = writeQueues.get(filePath)
+        if(current === holder) writeQueues.delete(filePath)
+    })
     return guarded
 }
 
@@ -32,7 +37,11 @@ export function queueOperation<T>(filePath: string, op: ()=>Promise<T>): Promise
     const prev = opQueues.get(filePath) ?? Promise.resolve()
     const next = prev.then(()=> op())
     const guarded = next.catch(err=>{ throw err })
-    // keep queue alive but swallow errors for queue continuity
-    opQueues.set(filePath, guarded.then(()=>{}).catch(()=>{}))
+    const holder = guarded.then(()=>{}).catch(()=>{})
+    opQueues.set(filePath, holder)
+    holder.finally(()=>{
+        const current = opQueues.get(filePath)
+        if(current === holder) opQueues.delete(filePath)
+    })
     return guarded
 }
